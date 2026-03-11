@@ -62,53 +62,62 @@ function startBot(){
     setInterval(checkReddit, 60000);
 }
 
-async function checkReddit(){
-    log("Fetching latest 10 posts from r/news...");
+async function checkReddit() {
+    log("Fetching latest posts via RSS Proxy...");
     const postDisplay = document.getElementById("all-posts");
     
+    // Reddit RSS URL for r/news
+    const redditRSS = "https://www.reddit.com";
+    
+    // Wrap the RSS link in the AllOrigins proxy to bypass CORS
+    const proxyUrl = `https://api.allorigins.win{encodeURIComponent(redditRSS)}&cache=${Date.now()}`;
+
     try {
-        // Adding a unique query param to bypass some caching
-        const res = await fetch(`https://www.reddit.com{Date.now()}`);
-        
-        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
-        
+        const res = await fetch(proxyUrl);
         const data = await res.json();
-        const posts = data.data.children;
+        
+        // Proxy returns the XML content as a string in data.contents
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(data.contents, "text/xml");
+        const entries = xml.querySelectorAll("entry");
 
-        // Clear the "Last 10 Posts" preview area each refresh
-        postDisplay.innerHTML = "";
+        // Clear the preview area
+        if (postDisplay) postDisplay.innerHTML = "";
 
-        posts.forEach(p => {
-            const postData = p.data;
-            const title = postData.title;
-            const lowerTitle = title.toLowerCase();
-            
-            // 1. Show in the "Last 10 Posts" list
-            const entry = document.createElement("div");
-            entry.className = "post-entry";
-            entry.innerHTML = `[${postData.author}] ${title}`;
-            postDisplay.appendChild(entry);
+        entries.forEach((entry, index) => {
+            const id = entry.querySelector("id")?.textContent;
+            const title = entry.querySelector("title")?.textContent;
+            const link = entry.querySelector("link")?.getAttribute("href");
 
-            // 2. Check for keywords and handle Alerts
-            if (!seenPosts.has(postData.id)) {
-                seenPosts.add(postData.id);
+            // 1. Update the "Last 10" UI list
+            if (index < 10 && postDisplay) {
+                const div = document.createElement("div");
+                div.className = "post-entry";
+                div.textContent = title;
+                postDisplay.appendChild(div);
+            }
 
+            // 2. Keyword Check & Alert Logic
+            if (id && !seenPosts.has(id)) {
+                seenPosts.add(id);
+                const lowerTitle = title.toLowerCase();
+                
                 keywords.forEach(word => {
                     if (lowerTitle.includes(word)) {
-                        log(`MATCH DETECTED: ${word}`);
-                        addAlert(word, title, postData.url);
+                        log(`RSS MATCH: ${word}`);
+                        addAlert(word, title, link);
                     }
                 });
             }
         });
-
-        log(`Successfully processed ${posts.length} posts.`);
-
+        
+        log(`Scanned ${entries.length} items from the feed.`);
     } catch (err) {
-        log("Fetch failed. Reddit may be rate-limiting you or CORS is blocking the request.");
-        console.error(err);
+        log("Fetch failed. The proxy might be down or Reddit is blocking the proxy.");
+        console.error("RSS Error:", err);
     }
 }
+
 
 function addAlert(word, title, url){
     const box = document.getElementById("alerts");
