@@ -1,39 +1,30 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Internet Monitoring Bot</title>
-    <style>
-        body{ font-family:Arial; background:#111; color:#eee; margin:20px; }
-        h1{ color:#6cf; }
-        #alerts, #all-posts { margin-top:20px; }
-        .alert { background:#222; padding:10px; margin-bottom:10px; border-left:4px solid #6cf; }
-        .post-entry { background:#1a1a1a; padding:8px; margin-bottom:5px; border-bottom:1px solid #333; font-size: 14px; }
-        .keyword { color:#ff6; font-weight:bold; }
-        #log { background:#000; padding:10px; margin-top:20px; height:150px; overflow-y:auto; font-family:monospace; font-size:13px; border:1px solid #444; }
-        .logline { color:#aaa; }
-        .match { color: #6cf; font-weight: bold; }
-    </style>
+<meta charset="UTF-8">
+<title>News Monitoring Bot</title>
+<style>
+    body{ font-family:Arial; background:#111; color:#eee; margin:20px; }
+    h1{ color:#6cf; }
+    #alerts{ margin-top:20px; }
+    .alert{ background:#222; padding:10px; margin-bottom:10px; border-left:4px solid #6cf; }
+    .keyword{ color:#ff6; font-weight:bold; }
+    #log{ background:#000; padding:10px; margin-top:20px; height:150px; overflow-y:auto; font-family:monospace; font-size:13px; border:1px solid #444; }
+    .logline{ color:#aaa; }
+</style>
 </head>
 <body>
 
-<h1>Live Monitoring Bot</h1>
-
+<h1>Live Monitoring Bot (Google News)</h1>
 <div>
-    Keywords (comma separated): 
-    <input id="keywords" value="earthquake, volcano, eruption" style="width:300px;">
+    Keywords: <input id="keywords" value="earthquake, volcano, eruption" style="width:300px;">
     <button onclick="startBot()">Start Bot</button>
 </div>
 
 <div id="status" style="margin-top:10px; color:#888;"></div>
-
-<h2>Recent Matches (Alerts)</h2>
+<h2>Alerts</h2>
 <div id="alerts"></div>
-
-<h2>Last 10 Posts Fetched</h2>
-<div id="all-posts"></div>
-
-<h2>System Log</h2>
+<h2>System Activity</h2>
 <div id="log"></div>
 
 <script>
@@ -53,117 +44,64 @@ function log(message){
 function startBot(){
     const input = document.getElementById("keywords").value;
     keywords = input.toLowerCase().split(",").map(x=>x.trim());
+    document.getElementById("status").innerText="Bot running... checking every 2 minutes";
+    log("Bot started. Monitoring Google News.");
     
-    document.getElementById("status").innerText = "Bot running... checking every 60s";
-    log("Bot started with keywords: " + keywords.join(", "));
-    
-    // Run immediately, then every 60 seconds
-    checkGoogleNews();
-    setInterval(checkReddit, 60000);
+    checkNews();
+    // Checking every 2 minutes to avoid proxy rate limits
+    setInterval(checkNews, 120000); 
 }
+
+async function checkNews(){
+    log("Fetching fresh news...");
     
-async function checkGoogleNews() {
-    log("Checking Google News for keywords...");
-    const keywordQuery = keywords.join(" OR "); // Search for any of your keywords
-    const targetUrl = `https://news.google.com{encodeURIComponent(keywordQuery)}&hl=en-US&gl=US&ceid=US:en`;
+    // Google News RSS is pre-filtered by your keywords
+    const query = keywords.join(" OR ");
+    const googleRSS = `https://news.google.com{encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
     
-    // Use a different proxy if AllOrigins is slow
-    const proxyUrl = `https://api.allorigins.win{encodeURIComponent(targetUrl)}&nocache=${Date.now()}`;
+    // NEW PROXY: CORSproxy.io
+    const proxyUrl = `https://corsproxy.io{encodeURIComponent(googleRSS)}`;
 
     try {
         const res = await fetch(proxyUrl);
-        const data = await res.json();
+        if(!res.ok) throw new Error("Proxy connection failed");
+        
+        const text = await res.text();
         const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(data.contents, "text/xml");
-        const items = xmlDoc.querySelectorAll("item");
+        const xml = parser.parseFromString(text, "text/xml");
+        const items = xml.querySelectorAll("item");
 
+        let newMatches = 0;
         items.forEach(item => {
-            const id = item.querySelector("guid")?.textContent;
+            const guid = item.querySelector("guid")?.textContent;
             const title = item.querySelector("title")?.textContent;
             const link = item.querySelector("link")?.textContent;
 
-            if (id && !seenPosts.has(id)) {
-                seenPosts.add(id);
-                // Since Google already filtered for us, we just add the alert
-                addAlert("Google News", title, link);
+            if (guid && !seenPosts.has(guid)) {
+                seenPosts.add(guid);
+                addAlert("NEWS", title, link);
+                newMatches++;
             }
         });
-        log(`Synced ${items.length} new headlines.`);
+
+        log(`Scan complete. Found ${newMatches} new matches.`);
     } catch (err) {
-        log("Google News fetch failed.");
+        log("Network Error: Proxy blocked or offline.");
+        console.error(err);
     }
 }
-
-async function checkReddit() {
-    log("Fetching latest posts via RSS Proxy...");
-    const postDisplay = document.getElementById("all-posts");
-    
-    // Reddit RSS URL for r/news
-    const redditRSS = "https://www.reddit.com";
-    
-    // Wrap the RSS link in the AllOrigins proxy to bypass CORS
-   const proxyUrl = `https://corsproxy.io{encodeURIComponent(redditRSS)}`;
-
-
-    try {
-        const res = await fetch(proxyUrl);
-        const data = await res.json();
-        
-        // Proxy returns the XML content as a string in data.contents
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(data.contents, "text/xml");
-        const entries = xml.querySelectorAll("entry");
-
-        // Clear the preview area
-        if (postDisplay) postDisplay.innerHTML = "";
-
-        entries.forEach((entry, index) => {
-            const id = entry.querySelector("id")?.textContent;
-            const title = entry.querySelector("title")?.textContent;
-            const link = entry.querySelector("link")?.getAttribute("href");
-
-            // 1. Update the "Last 10" UI list
-            if (index < 10 && postDisplay) {
-                const div = document.createElement("div");
-                div.className = "post-entry";
-                div.textContent = title;
-                postDisplay.appendChild(div);
-            }
-
-            // 2. Keyword Check & Alert Logic
-            if (id && !seenPosts.has(id)) {
-                seenPosts.add(id);
-                const lowerTitle = title.toLowerCase();
-                
-                keywords.forEach(word => {
-                    if (lowerTitle.includes(word)) {
-                        log(`RSS MATCH: ${word}`);
-                        addAlert(word, title, link);
-                    }
-                });
-            }
-        });
-        
-        log(`Scanned ${entries.length} items from the feed.`);
-    } catch (err) {
-        log("Fetch failed. The proxy might be down or Reddit is blocking the proxy.");
-        console.error("RSS Error:", err);
-    }
-}
-
 
 function addAlert(word, title, url){
     const box = document.getElementById("alerts");
     const div = document.createElement("div");
-    div.className = "alert";
+    div.className="alert";
     div.innerHTML = `
-        <span class="keyword">FOUND: ${word.toUpperCase()}</span><br>
+        <span class="keyword">${word}</span> detected<br>
         ${title}<br>
-        <a href="${url}" target="_blank" style="color:#6cf;">View on Reddit</a>
+        <a href="${url}" target="_blank" style="color:#6cf;">Read Article</a>
     `;
     box.prepend(div);
 }
 </script>
-
 </body>
 </html>
