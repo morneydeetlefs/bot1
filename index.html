@@ -1,181 +1,126 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>Internet Monitoring Bot</title>
-
-<style>
-
-body{
-font-family:Arial;
-background:#111;
-color:#eee;
-margin:20px;
-}
-
-h1{color:#6cf;}
-
-#alerts{
-margin-top:20px;
-}
-
-.alert{
-background:#222;
-padding:10px;
-margin-bottom:10px;
-border-left:4px solid #6cf;
-}
-
-.keyword{
-color:#ff6;
-font-weight:bold;
-}
-
-#log{
-background:#000;
-padding:10px;
-margin-top:20px;
-height:200px;
-overflow-y:auto;
-font-family:monospace;
-font-size:13px;
-border:1px solid #444;
-}
-
-.logline{
-color:#aaa;
-}
-
-</style>
+    <meta charset="UTF-8">
+    <title>Internet Monitoring Bot</title>
+    <style>
+        body{ font-family:Arial; background:#111; color:#eee; margin:20px; }
+        h1{ color:#6cf; }
+        #alerts, #all-posts { margin-top:20px; }
+        .alert { background:#222; padding:10px; margin-bottom:10px; border-left:4px solid #6cf; }
+        .post-entry { background:#1a1a1a; padding:8px; margin-bottom:5px; border-bottom:1px solid #333; font-size: 14px; }
+        .keyword { color:#ff6; font-weight:bold; }
+        #log { background:#000; padding:10px; margin-top:20px; height:150px; overflow-y:auto; font-family:monospace; font-size:13px; border:1px solid #444; }
+        .logline { color:#aaa; }
+        .match { color: #6cf; font-weight: bold; }
+    </style>
 </head>
-
 <body>
 
 <h1>Live Monitoring Bot</h1>
 
 <div>
-Keywords:
-<input id="keywords" value="earthquake, volcano, eruption">
-<button onclick="startBot()">Start Bot</button>
+    Keywords (comma separated): 
+    <input id="keywords" value="earthquake, volcano, eruption" style="width:300px;">
+    <button onclick="startBot()">Start Bot</button>
 </div>
 
-<div id="status"></div>
+<div id="status" style="margin-top:10px; color:#888;"></div>
 
-<h2>Alerts</h2>
+<h2>Recent Matches (Alerts)</h2>
 <div id="alerts"></div>
 
-<h2>Bot Activity</h2>
+<h2>Last 10 Posts Fetched</h2>
+<div id="all-posts"></div>
+
+<h2>System Log</h2>
 <div id="log"></div>
 
 <script>
-
 let seenPosts = new Set();
 let keywords = [];
 
 function log(message){
-
-const logBox = document.getElementById("log");
-
-const time = new Date().toLocaleTimeString();
-
-const line = document.createElement("div");
-
-line.className="logline";
-
-line.textContent = `[${time}] ${message}`;
-
-logBox.appendChild(line);
-
-logBox.scrollTop = logBox.scrollHeight;
-
+    const logBox = document.getElementById("log");
+    const time = new Date().toLocaleTimeString();
+    const line = document.createElement("div");
+    line.className="logline";
+    line.textContent = `[${time}] ${message}`;
+    logBox.appendChild(line);
+    logBox.scrollTop = logBox.scrollHeight;
 }
 
 function startBot(){
-
-const input = document.getElementById("keywords").value;
-
-keywords = input
-.toLowerCase()
-.split(",")
-.map(x=>x.trim());
-
-document.getElementById("status").innerText="Bot running...";
-
-log("Bot started");
-log("Keywords loaded: " + keywords.join(", "));
-
-setInterval(checkReddit,60000);
-
-checkReddit();
-
+    const input = document.getElementById("keywords").value;
+    keywords = input.toLowerCase().split(",").map(x=>x.trim());
+    
+    document.getElementById("status").innerText = "Bot running... checking every 60s";
+    log("Bot started with keywords: " + keywords.join(", "));
+    
+    // Run immediately, then every 60 seconds
+    checkReddit();
+    setInterval(checkReddit, 60000);
 }
 
 async function checkReddit(){
+    log("Fetching latest 10 posts from r/news...");
+    const postDisplay = document.getElementById("all-posts");
+    
+    try {
+        // Adding a unique query param to bypass some caching
+        const res = await fetch(`https://www.reddit.com{Date.now()}`);
+        
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        
+        const data = await res.json();
+        const posts = data.data.children;
 
-log("Fetching Reddit posts");
+        // Clear the "Last 10 Posts" preview area each refresh
+        postDisplay.innerHTML = "";
 
-try{
+        posts.forEach(p => {
+            const postData = p.data;
+            const title = postData.title;
+            const lowerTitle = title.toLowerCase();
+            
+            // 1. Show in the "Last 10 Posts" list
+            const entry = document.createElement("div");
+            entry.className = "post-entry";
+            entry.innerHTML = `[${postData.author}] ${title}`;
+            postDisplay.appendChild(entry);
 
-const res = await fetch(
-"https://www.reddit.com/r/news/new.json?limit=10"
-);
+            // 2. Check for keywords and handle Alerts
+            if (!seenPosts.has(postData.id)) {
+                seenPosts.add(postData.id);
 
-const data = await res.json();
+                keywords.forEach(word => {
+                    if (lowerTitle.includes(word)) {
+                        log(`MATCH DETECTED: ${word}`);
+                        addAlert(word, title, postData.url);
+                    }
+                });
+            }
+        });
 
-const posts = data.data.children;
+        log(`Successfully processed ${posts.length} posts.`);
 
-log(posts.length + " posts retrieved");
-
-posts.forEach(p=>{
-
-const id = p.data.id;
-
-if(seenPosts.has(id)) return;
-
-seenPosts.add(id);
-
-const title = p.data.title.toLowerCase();
-
-keywords.forEach(word=>{
-
-if(title.includes(word)){
-
-log(`Keyword detected: ${word}`);
-
-addAlert(word,p.data.title,p.data.url);
-
+    } catch (err) {
+        log("Fetch failed. Reddit may be rate-limiting you or CORS is blocking the request.");
+        console.error(err);
+    }
 }
 
-});
-
-});
-
-}catch(err){
-
-log("Fetch error");
-
+function addAlert(word, title, url){
+    const box = document.getElementById("alerts");
+    const div = document.createElement("div");
+    div.className = "alert";
+    div.innerHTML = `
+        <span class="keyword">FOUND: ${word.toUpperCase()}</span><br>
+        ${title}<br>
+        <a href="${url}" target="_blank" style="color:#6cf;">View on Reddit</a>
+    `;
+    box.prepend(div);
 }
-
-}
-
-function addAlert(word,title,url){
-
-const box = document.getElementById("alerts");
-
-const div = document.createElement("div");
-
-div.className="alert";
-
-div.innerHTML = `
-<span class="keyword">${word}</span> detected<br>
-${title}<br>
-<a href="${url}" target="_blank">Open post</a>
-`;
-
-box.prepend(div);
-
-}
-
 </script>
 
 </body>
