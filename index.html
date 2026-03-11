@@ -58,8 +58,40 @@ function startBot(){
     log("Bot started with keywords: " + keywords.join(", "));
     
     // Run immediately, then every 60 seconds
-    checkReddit();
+    checkGoogleNews();
     setInterval(checkReddit, 60000);
+}
+    
+async function checkGoogleNews() {
+    log("Checking Google News for keywords...");
+    const keywordQuery = keywords.join(" OR "); // Search for any of your keywords
+    const targetUrl = `https://news.google.com{encodeURIComponent(keywordQuery)}&hl=en-US&gl=US&ceid=US:en`;
+    
+    // Use a different proxy if AllOrigins is slow
+    const proxyUrl = `https://api.allorigins.win{encodeURIComponent(targetUrl)}&nocache=${Date.now()}`;
+
+    try {
+        const res = await fetch(proxyUrl);
+        const data = await res.json();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(data.contents, "text/xml");
+        const items = xmlDoc.querySelectorAll("item");
+
+        items.forEach(item => {
+            const id = item.querySelector("guid")?.textContent;
+            const title = item.querySelector("title")?.textContent;
+            const link = item.querySelector("link")?.textContent;
+
+            if (id && !seenPosts.has(id)) {
+                seenPosts.add(id);
+                // Since Google already filtered for us, we just add the alert
+                addAlert("Google News", title, link);
+            }
+        });
+        log(`Synced ${items.length} new headlines.`);
+    } catch (err) {
+        log("Google News fetch failed.");
+    }
 }
 
 async function checkReddit() {
