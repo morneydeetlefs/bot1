@@ -1,98 +1,80 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>News Monitoring Bot</title>
-<style>
-    body{ font-family:Arial; background:#111; color:#eee; margin:20px; }
-    h1{ color:#6cf; }
-    #alerts{ margin-top:20px; }
-    .alert{ background:#222; padding:10px; margin-bottom:10px; border-left:4px solid #6cf; }
-    .keyword{ color:#ff6; font-weight:bold; }
-    #log{ background:#000; padding:10px; margin-top:20px; height:150px; overflow-y:auto; font-family:monospace; font-size:13px; border:1px solid #444; }
-    .logline{ color:#aaa; }
-</style>
+    <meta charset="UTF-8">
+    <title>News Monitor</title>
+    <style>
+        body{ font-family:sans-serif; background:#111; color:#eee; padding:20px; }
+        .alert{ background:#222; padding:10px; margin-bottom:10px; border-left:4px solid #6cf; }
+        #log{ background:#000; padding:10px; height:150px; overflow-y:auto; font-family:monospace; font-size:12px; border:1px solid #444; }
+        .logline{ color:#888; }
+    </style>
 </head>
 <body>
 
-<h1>Live Monitoring Bot (Google News)</h1>
-<div>
-    Keywords: <input id="keywords" value="earthquake, volcano, eruption" style="width:300px;">
+    <h1>Live News Bot</h1>
+    <input id="keywords" value="earthquake, volcano" style="width:250px;">
     <button onclick="startBot()">Start Bot</button>
-</div>
 
-<div id="status" style="margin-top:10px; color:#888;"></div>
-<h2>Alerts</h2>
-<div id="alerts"></div>
-<h2>System Activity</h2>
-<div id="log"></div>
+    <h3>Alerts</h3>
+    <div id="alerts"></div>
+
+    <h3>System Log</h3>
+    <div id="log"></div>
 
 <script>
 let seenPosts = new Set();
-let keywords = [];
 
-function log(message){
+function log(msg) {
     const logBox = document.getElementById("log");
-    const time = new Date().toLocaleTimeString();
     const line = document.createElement("div");
-    line.className="logline";
-    line.textContent = `[${time}] ${message}`;
+    line.className = "logline";
+    line.textContent = "[" + new Date().toLocaleTimeString() + "] " + msg;
     logBox.appendChild(line);
     logBox.scrollTop = logBox.scrollHeight;
 }
 
-function startBot(){
-    const input = document.getElementById("keywords").value;
-    keywords = input.toLowerCase().split(",").map(x=>x.trim());
-    document.getElementById("status").innerText="Bot running... checking every 2 minutes";
-    log("Bot started. Monitoring Google News.");
-    
+function startBot() {
+    log("Bot initialized...");
     checkNews();
-    // Checking every 2 minutes to avoid proxy rate limits
-    setInterval(checkNews, 120000); 
+    setInterval(checkNews, 60000); // Check every minute
 }
 
 async function checkNews() {
-    log("Fetching via NewsAPI (Direct)...");
+    const kw = document.getElementById("keywords").value;
+    const apiKey = "dff88a84a0a74239a42cb5a5ac2e245e";
     
-    const apiKey = 'dff88a84a0a74239a42cb5a5ac2e245e'; // <--- Insert your key
-    const query = keywords.join(" OR ");
-    const url = `https://newsapi.org{encodeURIComponent(query)}&sortBy=publishedAt&apiKey=${apiKey}`;
+    // Constructing URL with plus signs to be 100% safe
+    const url = "https://newsapi.org" + encodeURIComponent(kw) + "&sortBy=publishedAt&apiKey=" + apiKey;
+
+    log("Requesting: " + url);
 
     try {
         const res = await fetch(url);
         const data = await res.json();
 
-        if (data.status !== "ok") throw new Error(data.message);
+        if (data.status !== "ok") {
+            log("API Error: " + data.message);
+            return;
+        }
 
-        let newMatches = 0;
-        data.articles.forEach(article => {
-            // NewsAPI uses 'url' as a unique identifier
-            if (!seenPosts.has(article.url)) {
-                seenPosts.add(article.url);
-                addAlert("NEWS", article.title, article.url);
-                newMatches++;
+        data.articles.forEach(art => {
+            if (!seenPosts.has(art.url)) {
+                seenPosts.add(art.url);
+                
+                const box = document.getElementById("alerts");
+                const div = document.createElement("div");
+                div.className = "alert";
+                div.innerHTML = "<b>" + art.title + "</b><br><a href='" + art.url + "' target='_blank' style='color:#6cf'>Read more</a>";
+                box.prepend(div);
+                
+                log("New match: " + art.title.substring(0, 30) + "...");
             }
         });
-
-        log(`Scan complete. Found ${newMatches} new articles.`);
     } catch (err) {
-        log("NewsAPI Error: " + err.message);
-        console.error(err);
+        log("CRITICAL ERROR: " + err.message);
+        log("Check if your internet or an ad-blocker is blocking newsapi.org");
     }
-}
-
-
-function addAlert(word, title, url){
-    const box = document.getElementById("alerts");
-    const div = document.createElement("div");
-    div.className="alert";
-    div.innerHTML = `
-        <span class="keyword">${word}</span> detected<br>
-        ${title}<br>
-        <a href="${url}" target="_blank" style="color:#6cf;">Read Article</a>
-    `;
-    box.prepend(div);
 }
 </script>
 </body>
