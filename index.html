@@ -70,7 +70,8 @@ async function checkReddit() {
     const redditRSS = "https://www.reddit.com";
     
     // Wrap the RSS link in the AllOrigins proxy to bypass CORS
-    const proxyUrl = `https://api.allorigins.win{encodeURIComponent(redditRSS)}&cache=${Date.now()}`;
+   const proxyUrl = `https://corsproxy.io{encodeURIComponent(redditRSS)}`;
+
 
     try {
         const res = await fetch(proxyUrl);
