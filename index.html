@@ -52,43 +52,35 @@ function startBot(){
     setInterval(checkNews, 120000); 
 }
 
-async function checkNews(){
-    log("Fetching fresh news...");
+async function checkNews() {
+    log("Fetching via NewsAPI (Direct)...");
     
-    // Google News RSS is pre-filtered by your keywords
+    const apiKey = 'dff88a84a0a74239a42cb5a5ac2e245e'; // <--- Insert your key
     const query = keywords.join(" OR ");
-    const googleRSS = `https://news.google.com{encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
-    
-    // NEW PROXY: CORSproxy.io
-    const proxyUrl = `https://corsproxy.io{encodeURIComponent(googleRSS)}`;
+    const url = `https://newsapi.org{encodeURIComponent(query)}&sortBy=publishedAt&apiKey=${apiKey}`;
 
     try {
-        const res = await fetch(proxyUrl);
-        if(!res.ok) throw new Error("Proxy connection failed");
-        
-        const text = await res.text();
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(text, "text/xml");
-        const items = xml.querySelectorAll("item");
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.status !== "ok") throw new Error(data.message);
 
         let newMatches = 0;
-        items.forEach(item => {
-            const guid = item.querySelector("guid")?.textContent;
-            const title = item.querySelector("title")?.textContent;
-            const link = item.querySelector("link")?.textContent;
-
-            if (guid && !seenPosts.has(guid)) {
-                seenPosts.add(guid);
-                addAlert("NEWS", title, link);
+        data.articles.forEach(article => {
+            // NewsAPI uses 'url' as a unique identifier
+            if (!seenPosts.has(article.url)) {
+                seenPosts.add(article.url);
+                addAlert("NEWS", article.title, article.url);
                 newMatches++;
             }
         });
 
-        log(`Scan complete. Found ${newMatches} new matches.`);
+        log(`Scan complete. Found ${newMatches} new articles.`);
     } catch (err) {
-        log("Network Error: Proxy blocked or offline.");
+        log("NewsAPI Error: " + err.message);
         console.error(err);
     }
+}
 }
 
 function addAlert(word, title, url){
